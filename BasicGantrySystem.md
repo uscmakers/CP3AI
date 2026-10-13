@@ -2,7 +2,7 @@
 # XY Gantry System — Components & Design
 
 > **Status:** Preliminary Hardware Design  
-> **Controller:** Q Microcontroller  
+> **Controller:** Arduino Uno Q  
 > **Logic Voltage:** 3.3V  
 > **Purpose:** XY positioning system with servo-actuated magnet
 
@@ -31,7 +31,7 @@ The system is controlled by the **Q microcontroller**, which communicates with t
 
 ```mermaid
 flowchart TD
-    A["Q Microcontroller<br/>3.3V Logic"]
+    A["Arduino Uno Q<br/>3.3V Logic"]
 
     A -->|STEP / DIR| B["X Stepper Driver"]
     A -->|STEP / DIR| C["Y Stepper Driver"]
@@ -87,7 +87,7 @@ The motors rotate pulleys that move the gantry belts, allowing the carriage to m
 
 ### 3.2 Stepper Motor Drivers
 
-**Purpose:** Interface between the Q microcontroller and the stepper motors.
+**Purpose:** Interface between the Arduino Uno Q and the stepper motors.
 
 The drivers receive low-power control signals from the Q and regulate the electrical current supplied to the stepper motor coils.
 
@@ -140,7 +140,7 @@ A mechanical linkage connects the servo motor to the magnet, allowing the magnet
 
 ### 4.1 Logic Voltage
 
-The Q microcontroller operates using **3.3V logic**.
+The Arduino Uno Q operates using **3.3V logic**.
 
 All devices communicating directly with the Q must accept its logic levels or use appropriate level shifting.
 
@@ -148,7 +148,7 @@ All devices communicating directly with the Q must accept its logic levels or us
 
 The microcontroller provides control signals, not the primary motor power.
 
-- **Q Microcontroller:** Logic and control
+- **Arduino Uno Q:** Logic and control
 - **Stepper Drivers:** Supply regulated motor coil current
 - **Stepper Motors:** Receive power through the drivers
 - **Servo Motor:** Requires a suitable power source
@@ -184,70 +184,3 @@ The microcontroller provides control signals, not the primary motor power.
 *TBD = To Be Determined*
 
 ---
-
-## 6. Design Considerations
-
-### Mechanical
-
-- [ ] Determine gantry dimensions
-- [ ] Calculate moving carriage mass
-- [ ] Determine required stepper motor torque
-- [ ] Select belt and pulley sizes
-- [ ] Determine servo mounting location
-- [ ] Design magnet linkage geometry
-- [ ] Verify mechanical clearance throughout XY travel
-
-### Electrical
-
-- [ ] Confirm Q microcontroller pin availability
-- [ ] Verify 3.3V driver logic compatibility
-- [ ] Determine stepper motor voltage and current requirements
-- [ ] Select appropriate motor power supplies
-- [ ] Verify servo voltage and current requirements
-- [ ] Establish common-ground connections
-- [ ] Consider cable routing for the moving carriage
-
-### Control / Software
-
-- [ ] Configure STEP and DIR signals
-- [ ] Implement X-axis movement
-- [ ] Implement Y-axis movement
-- [ ] Implement XY coordinate positioning
-- [ ] Implement servo control
-- [ ] Calibrate motor steps per millimeter
-- [ ] Configure travel limits and homing
-- [ ] Coordinate servo actuation with gantry movement
-
----
-
-## 7. Open Design Questions
-
-1. What are the required dimensions of the XY gantry?
-2. How much mass will the moving carriage carry?
-3. What speed and positioning accuracy are required?
-4. Which stepper motors provide sufficient torque?
-5. Which driver is best suited for the Q's 3.3V logic?
-6. What type of servo motor is required?
-7. How far must the magnet move?
-8. What linkage geometry will provide the desired magnet movement?
-9. What power supply configuration will the system require?
-
----
-
-## 8. Summary
-
-The system consists of three primary functional components:
-
-| Subsystem | Function |
-|---|---|
-| Q Microcontroller | Coordinates overall system movement |
-| Stepper Motors + Drivers | Control XY positioning |
-| Servo Motor + Linkage | Actuate the magnet |
-
-**Overall operation:**
-
-`Q Microcontroller → Stepper Drivers → XY Gantry Positioning`
-
-`Q Microcontroller → Servo Motor → Linkage → Magnet Actuation`
-
-The XY movement and servo actuation are mechanically independent but coordinated through the Q microcontroller.
