@@ -14,7 +14,7 @@ The XY gantry system uses stepper motors to control movement along the **X and Y
 
 A servo motor is mounted on the moving carriage and uses a mechanical linkage to control the position of a magnet.
 
-The system is controlled by the **Q microcontroller**, which communicates with the stepper motor drivers and the servo.
+The system is controlled by the **Arduino Uno Q**, which communicates with the stepper motor drivers and the servo.
 
 > [!IMPORTANT]
 > All control signals must be compatible with the Q's **3.3V logic level**.
@@ -22,7 +22,7 @@ The system is controlled by the **Q microcontroller**, which communicates with t
 ### Main Subsystems
 
 1. **XY Motion System** — Stepper motors move the gantry along the X and Y axes.
-2. **Motor Control System** — Stepper motor drivers interface with the Q microcontroller.
+2. **Motor Control System** — Stepper motor drivers interface with the Arduino Uno Q.
 3. **Servo Actuation System** — A servo motor and linkage control the magnet's position.
 
 ---
