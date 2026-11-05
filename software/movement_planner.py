@@ -38,10 +38,6 @@ TRIANGLE_10_ESCAPE_DIRECTIONS = {
 }
 
 TRIANGLE_10_MIDDLE_RULES = {
-    5: {
-        "clearance_cups": (4, 6),
-        "blocker": 6,
-    },
     1: {
         "clearance_cups": (0,),
         "blocker": 0,
@@ -50,6 +46,16 @@ TRIANGLE_10_MIDDLE_RULES = {
         "clearance_cups": (3,),
         "blocker": 3,
     },
+}
+
+# Triangle_10 cup 5 touches six cups, so clearing one side neighbor
+# is not enough: it still cannot slide between the cups above and
+# below it. Each exit clears the side neighbor and the upper
+# diagonal neighbor, then cup 5 leaves diagonally upward.
+# Blockers are listed in the order they are moved.
+TRIANGLE_10_CUP_5_EXITS = {
+    "right": {"blockers": (6, 8), "angle": math.radians(30)},
+    "left": {"blockers": (4, 7), "angle": math.radians(150)},
 }
 
 # Formation positions: position 1 sits between positions 0 and 2
@@ -273,6 +279,40 @@ def find_path(
             key = ("boundary", obstacle_index, angle_index)
             nodes[key] = candidate
             boundary_keys.append(key)
+
+    # Rays out of start and goal. A cup packed against its
+    # neighbors can only leave (or re-enter) along an exact
+    # tangent direction, a multiple of 30 degrees in the
+    # formations, which grid nodes rarely line up with.
+    for special_index, special in enumerate((start, goal)):
+        for angle_index in range(36):
+            angle = 2 * math.pi * angle_index / 36
+
+            for multiplier in (0.5, 1.0):
+                candidate = TablePosition(
+                    special.x
+                    + multiplier * cup.rim_diameter * math.cos(angle),
+                    special.y
+                    + multiplier * cup.rim_diameter * math.sin(angle)
+                )
+
+                if not is_position_valid(
+                    candidate,
+                    obstacles,
+                    workspace,
+                    cup,
+                    edge_clearance
+                ):
+                    continue
+
+                if not is_straight_path_clear(
+                    special, candidate, obstacles, cup
+                ):
+                    continue
+
+                key = ("ray", special_index, angle_index, multiplier)
+                nodes[key] = candidate
+                boundary_keys.append(key)
 
     nodes["start"] = start
     nodes["goal"] = goal
@@ -860,6 +900,350 @@ def plan_specific_blocker_clearance(
 
 
 # ============================================================
+# MULTIPLE BLOCKER RELOCATION
+# ============================================================
+
+def plan_multi_blocker_clearance(
+    selected_id,
+    blocker_ids,
+    exit_angle,
+    active,
+    parked,
+    gantry_position,
+    workspace,
+    cup,
+    slots,
+    occupancy,
+    step_size=15,
+    buffers_per_blocker=4
+):
+    """
+    Plan:
+
+    1. Move each blocker, in order, to a temporary buffer.
+    2. Park selected cup.
+    3. Restore blockers in reverse order.
+
+    Buffers overlapping the selected cup's exit corridor (from
+    the cup along exit_angle) are skipped. Tries up to
+    buffers_per_blocker reachable buffers per blocker and
+    returns the first complete plan.
+
+    Returns:
+        (steps, cost) or None.
+    """
+
+    if selected_id not in active:
+        return None
+
+    if any(
+        blocker_id not in active or blocker_id == selected_id
+        for blocker_id in blocker_ids
+    ):
+        return None
+
+    source = active[selected_id]
+
+    still = [
+        position
+        for cup_id, position in active.items()
+        if cup_id != selected_id
+        and cup_id not in blocker_ids
+    ]
+
+    still += list(parked.values())
+
+    corridor_end = TablePosition(
+        source.x + 4 * cup.rim_diameter * math.cos(exit_angle),
+        source.y + 4 * cup.rim_diameter * math.sin(exit_angle)
+    )
+
+    def clears_corridor(position):
+        return distance_from_segment(
+            position, source, corridor_end
+        ) >= cup.rim_diameter - COLLISION_TOLERANCE
+
+    def restore(moved, target):
+        """Paths returning moved blockers, last moved first."""
+
+        paths = []
+        placed = still + [target]
+        waiting = [buffer for _, buffer in moved]
+
+        for index in range(len(moved) - 1, -1, -1):
+            blocker_id, buffer = moved[index]
+            waiting.pop()
+
+            path = find_path(
+                buffer,
+                active[blocker_id],
+                placed + waiting,
+                workspace,
+                cup,
+                step_size=step_size
+            )
+
+            if path is None:
+                return None
+
+            paths.append((blocker_id, buffer, path))
+            placed.append(active[blocker_id])
+
+        return paths
+
+    def search(index, moved, moves):
+        """Depth-first search over buffers for each blocker."""
+
+        buffers = [buffer for _, buffer in moved]
+
+        if index == len(blocker_ids):
+            parking = choose_fixed_parking(
+                source,
+                still + buffers,
+                buffers[-1],
+                workspace,
+                cup,
+                slots,
+                occupancy,
+                step_size
+            )
+
+            if parking is None:
+                return None
+
+            _, slot_id, target, path = parking
+
+            restored = restore(moved, target)
+
+            if restored is None:
+                return None
+
+            return moves, (slot_id, target, path), restored
+
+        blocker_id = blocker_ids[index]
+        blocker = active[blocker_id]
+
+        remaining = [
+            active[other_id]
+            for other_id in blocker_ids[index + 1:]
+        ]
+
+        obstacles = still + buffers + remaining + [source]
+
+        candidates = [
+            buffer
+            for buffer in generate_temporary_buffers(
+                blocker,
+                obstacles + [blocker],
+                workspace,
+                cup,
+                slots,
+                step_size
+            )
+            if clears_corridor(buffer)
+        ]
+
+        tried = 0
+
+        for buffer in candidates:
+            if tried >= buffers_per_blocker:
+                break
+
+            path = find_path(
+                blocker,
+                buffer,
+                obstacles,
+                workspace,
+                cup,
+                step_size=step_size
+            )
+
+            if path is None:
+                continue
+
+            tried += 1
+
+            result = search(
+                index + 1,
+                moved + [(blocker_id, buffer)],
+                moves + [(blocker_id, blocker, buffer, path)]
+            )
+
+            if result is not None:
+                return result
+
+        return None
+
+    result = search(0, [], [])
+
+    if result is None:
+        return None
+
+    moves, (slot_id, target, parking_path), restored = result
+
+    steps = []
+    cost = 0.0
+    position = gantry_position
+
+    for blocker_id, start, buffer, path in moves:
+        cost += distance_between(position, start) + path_cost(path)
+        position = buffer
+
+        steps.append((
+            f"Temporarily move cup {blocker_id}",
+            blocker_id,
+            start,
+            buffer,
+            path,
+            None
+        ))
+
+    cost += (
+        distance_between(position, source)
+        + path_cost(parking_path)
+    )
+    position = target
+
+    steps.append((
+        f"Park cup {selected_id} in {slot_id}",
+        selected_id,
+        source,
+        target,
+        parking_path,
+        slot_id
+    ))
+
+    for blocker_id, buffer, path in restored:
+        cost += distance_between(position, buffer) + path_cost(path)
+        position = active[blocker_id]
+
+        steps.append((
+            f"Restore cup {blocker_id}",
+            blocker_id,
+            buffer,
+            active[blocker_id],
+            path,
+            None
+        ))
+
+    return tuple(steps), cost
+
+
+# ============================================================
+# TRIANGLE-10 CUP 5 STRATEGY
+# ============================================================
+
+def choose_triangle_10_cup_5_plan(
+    active,
+    parked,
+    gantry_position,
+    workspace,
+    cup,
+    slots,
+    occupancy,
+    step_size=15
+):
+    """
+    Hardcoded strategy for the center cup of triangle_10.
+
+    Exit right: temporarily move cups 6 and 8.
+    Exit left: temporarily move cups 4 and 7.
+
+    Cups already removed are skipped. The side needing the fewest
+    temporary moves is tried first (right on a tie), so if cup 4
+    or 6 is gone, cup 5 leaves toward that side.
+    """
+
+    selected_id = 5
+
+    if selected_id not in active:
+        return None
+
+    exits = sorted(
+        TRIANGLE_10_CUP_5_EXITS.items(),
+        key=lambda item: (
+            sum(
+                blocker_id in active
+                for blocker_id in item[1]["blockers"]
+            ),
+            item[0] != "right"
+        )
+    )
+
+    for side, rule in exits:
+        blocker_ids = tuple(
+            blocker_id
+            for blocker_id in rule["blockers"]
+            if blocker_id in active
+        )
+
+        if not blocker_ids:
+            print(f"Cup 5: {side} exit already clear.")
+
+            obstacles = [
+                position
+                for cup_id, position in active.items()
+                if cup_id != selected_id
+            ]
+
+            obstacles += list(parked.values())
+
+            parking = choose_fixed_parking(
+                active[selected_id],
+                obstacles,
+                gantry_position,
+                workspace,
+                cup,
+                slots,
+                occupancy,
+                step_size=step_size
+            )
+
+            if parking is None:
+                continue
+
+            cost, slot_id, target, path = parking
+
+            steps = (
+                (
+                    f"Park cup {selected_id} in {slot_id}",
+                    selected_id,
+                    active[selected_id],
+                    target,
+                    path,
+                    slot_id
+                ),
+            )
+
+            return steps, cost
+
+        print(
+            f"Cup 5: exiting {side}, temporarily relocating "
+            + " and ".join(f"cup {b}" for b in blocker_ids)
+            + "."
+        )
+
+        result = plan_multi_blocker_clearance(
+            selected_id,
+            blocker_ids,
+            rule["angle"],
+            active,
+            parked,
+            gantry_position,
+            workspace,
+            cup,
+            slots,
+            occupancy,
+            step_size
+        )
+
+        if result is not None:
+            return result
+
+    return None
+
+
+# ============================================================
 # TRIANGLE-10 MIDDLE-CUP STRATEGY
 # ============================================================
 
@@ -878,8 +1262,7 @@ def choose_triangle_10_middle_plan(
     Hardcoded strategy for triangle_10 cups 1, 2, 5.
 
     Cup 5:
-        If 4 or 6 is removed, attempt direct parking.
-        Otherwise temporarily move cup 6.
+        See choose_triangle_10_cup_5_plan.
 
     Cup 1:
         If 0 is removed, attempt direct parking.
@@ -889,6 +1272,18 @@ def choose_triangle_10_middle_plan(
         If 3 is removed, attempt direct parking.
         Otherwise temporarily move cup 3.
     """
+
+    if selected_id == 5:
+        return choose_triangle_10_cup_5_plan(
+            active,
+            parked,
+            gantry_position,
+            workspace,
+            cup,
+            slots,
+            occupancy,
+            step_size
+        )
 
     if selected_id not in TRIANGLE_10_MIDDLE_RULES:
         return None
