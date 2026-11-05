@@ -1366,6 +1366,8 @@ def choose_triangle_10_middle_plan(
         f"relocating cup {blocker_id}."
     )
 
+    # Searching every buffer for the cheapest plan takes minutes
+    # and freezes the viewer; buffers are tried nearest first.
     return plan_specific_blocker_clearance(
         selected_id,
         blocker_id,
@@ -1376,7 +1378,8 @@ def choose_triangle_10_middle_plan(
         cup,
         slots,
         occupancy,
-        step_size
+        step_size,
+        stop_at_first=True
     )
 
 
@@ -1999,12 +2002,15 @@ def aligned_formation_targets(
     """
     Candidate placements for a new formation, best first.
 
-    Each candidate shifts the new formation so one of its positions
-    lands on a position of the current formation. Placements that
-    reuse spots where cups already sit need fewer moves and avoid
-    targets that half-overlap cups still waiting to move.
+    The new formation stays horizontally centered on the table; it
+    is never shifted left or right. Each candidate shifts it toward
+    the front or back so one of its positions lands on a position
+    of the current formation. Placements that reuse spots where
+    cups already sit need fewer moves and avoid targets that
+    half-overlap cups still waiting to move.
 
-    new_positions: {index: TablePosition}, default placement
+    new_positions: {index: TablePosition}, default placement,
+        horizontally centered
     current_positions: {index: TablePosition}, current formation
     active: {cup_id: TablePosition}
     parked: {cup_id: TablePosition}, must stay clear
@@ -2013,23 +2019,25 @@ def aligned_formation_targets(
     placement is always included.
     """
 
-    shifts = {(0.0, 0.0)}
+    # Rounded shift -> exact shift. Rounding only removes
+    # duplicates; exact shifts keep targets on the cups.
+    shifts = {(0.0, 0.0): (0.0, 0.0)}
 
     for anchor in current_positions.values():
         for position in new_positions.values():
-            shifts.add((
-                round(anchor.x - position.x, 3),
-                round(anchor.y - position.y, 3)
-            ))
+            if abs(anchor.x - position.x) > match_tolerance:
+                continue
+
+            dy = anchor.y - position.y
+
+            shifts.setdefault((0.0, round(dy, 3)), (0.0, dy))
 
     parked_positions = list(parked.values())
     active_positions = list(active.values())
 
-    center_x = workspace.width / 2
-
     scored = []
 
-    for dx, dy in shifts:
+    for dx, dy in shifts.values():
         targets = {
             index: TablePosition(p.x + dx, p.y + dy)
             for index, p in new_positions.items()
@@ -2052,17 +2060,13 @@ def aligned_formation_targets(
             for target in targets.values()
         )
 
-        mean_x = sum(t.x for t in targets.values()) / len(targets)
-
-        # Most cups already in place, then closest to the back,
-        # then closest to center.
+        # Most cups already in place, then closest to the back.
         scored.append((
             -in_place,
             round(dy, 3),
-            abs(mean_x - center_x),
             targets
         ))
 
-    scored.sort(key=lambda item: item[:3])
+    scored.sort(key=lambda item: item[:2])
 
     return [targets for *_, targets in scored]
