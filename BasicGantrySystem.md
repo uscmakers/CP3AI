@@ -1,186 +1,65 @@
+# CoreXY Gantry System - Components & Design
 
-# XY Gantry System — Components & Design
+> Status: Preliminary electrical design, updated 2026-11-02
+> Controller: Arduino UNO Q, 3.3 V MCU digital headers
+> Motion: CoreXY, motors A and B
+> Tool: Permanent magnet with servo lift (confirmed by user)
 
-> **Status:** Preliminary Hardware Design  
-> **Controller:** Arduino Uno Q  
-> **Logic Voltage:** 3.3V  
-> **Purpose:** XY positioning system with servo-actuated magnet
+The previous independent X/Y motor architecture is superseded. Two fixed stepper motors drive the coupled CoreXY belts. Both participate in X and Y motion; each has its own driver. The carriage carries a permanent magnet and a servo-operated lift linkage. The electromagnet annotation in the brainstorm PDF is not part of the selected design.
 
----
-
-## 1. System Overview
-
-The XY gantry system uses stepper motors to control movement along the **X and Y axes**.
-
-A servo motor is mounted on the moving carriage and uses a mechanical linkage to control the position of a magnet.
-
-The system is controlled by the **Q microcontroller**, which communicates with the stepper motor drivers and the servo.
-
-> [!IMPORTANT]
-> All control signals must be compatible with the Q's **3.3V logic level**.
-
-### Main Subsystems
-
-1. **XY Motion System** — Stepper motors move the gantry along the X and Y axes.
-2. **Motor Control System** — Stepper motor drivers interface with the Q microcontroller.
-3. **Servo Actuation System** — A servo motor and linkage control the magnet's position.
-
----
-
-## 2. System Architecture
+## Architecture
 
 ```mermaid
-flowchart TD
-    A["Arduino Uno Q<br/>3.3V Logic"]
-
-    A -->|STEP / DIR| B["X Stepper Driver"]
-    A -->|STEP / DIR| C["Y Stepper Driver"]
-    A -->|Control Signal| D["Servo Motor"]
-
-    B --> E["X Stepper Motor"]
-    C --> F["Y Stepper Motor"]
-
-    E --> G["X Belt & Pulley"]
-    F --> H["Y Belt & Pulley"]
-
-    G --> I["XY Gantry Movement"]
-    H --> I
-
-    D --> J["Mechanical Linkage"]
-    J --> K["Magnet Movement"]
+flowchart LR
+    Q["UNO Q MCU"] -->|"STEP / DIR"| DA["Driver A"]
+    Q -->|"STEP / DIR"| DB["Driver B"]
+    DA --> MA["Motor A"]
+    DB --> MB["Motor B"]
+    MA --> BELTS["Coupled CoreXY belts"]
+    MB --> BELTS
+    BELTS --> XY["XY carriage position"]
+    Q -->|"Servo pulses"| S["Servo + lift linkage"]
+    S --> M["Permanent magnet height"]
+    HX["X home switch"] --> Q
+    HY["Y home switch"] --> Q
 ```
 
-**Control flow:**
+Power and grounding are detailed in [CoreXYWiring.md](CoreXYWiring.md).
 
-- The Q sends positioning commands through the stepper drivers.
-- The stepper drivers regulate current through the stepper motors.
-- The stepper motors rotate pulleys that drive the gantry belts.
-- The servo independently actuates the magnet using a linkage.
+For one common sign convention, motor travel is A = X + Y and B = X - Y. Verify signs against actual belt routing and motor directions. Use the UNO Q MCU for coordinated step timing and home inputs; any Linux application should send motion requests to the MCU.
 
-*Note: Motor power supplies and grounding connections are omitted from this diagram.*
+## Parts baseline
 
----
+Shopping quantities come from the brainstorm PDF and do not prove purchase status.
 
-## 3. Proposed Hardware Components
-
-### 3.1 XY Stepper Motors
-
-**Purpose:** Control motion along the X and Y axes.
-
-The motors rotate pulleys that move the gantry belts, allowing the carriage to move to specific XY coordinates.
-
-#### Key Considerations
-
-- Gantry mass and moving load
-- Friction within the mechanical system
-- Desired acceleration and speed
-- Pulley dimensions
-- Motor torque requirements
-- Positioning precision
-
-**Potential configuration:**
-- 1 × X-axis stepper motor
-- 1 × Y-axis stepper motor
-- Timing belts and pulleys
-
-> **Note:** Required motor torque depends on the gantry's mass, friction, acceleration, and pulley dimensions.
-
-### 3.2 Stepper Motor Drivers
-
-**Purpose:** Interface between the Arduino Uno Q and the stepper motors.
-
-The drivers receive low-power control signals from the Q and regulate the electrical current supplied to the stepper motor coils.
-
-#### Responsibilities
-
-- Control motor stepping sequences
-- Regulate motor coil current
-- Support directional control
-- Support microstepping for smoother movement
-- Interface with 3.3V microcontroller signals
-
-#### Candidate Drivers
-
-| Driver | Description |
-|---|---|
-| TMC2209 | Quiet operation, microstepping, configurable current control |
-| DRV8825 | Common stepper driver with current limiting and microstepping |
-
-**Important:** Confirm the 3.3V logic compatibility of the specific driver modules.
-
-### 3.3 Servo Motor + Mechanical Linkage
-
-**Purpose:** Control the magnet attached to the XY gantry.
-
-The servo motor is mounted directly onto the moving gantry carriage.
-
-A mechanical linkage connects the servo motor to the magnet, allowing the magnet to move independently of the gantry's XY position.
-
-#### Components
-
-- Servo motor
-- Servo mounting bracket
-- Servo horn
-- Mechanical linkage
-- Magnet attachment
-
-#### Operating Principle
-
-1. The XY gantry moves to the desired coordinate.
-2. The Q sends a control signal to the servo.
-3. The servo rotates to the commanded position.
-4. The linkage transfers the servo's rotation into mechanical movement.
-5. The magnet changes position accordingly.
-
-> **Design Note:** The required servo torque and linkage geometry depend on the magnet's mass, the desired movement, and the mechanical configuration.
-
----
-
-## 4. Electrical Requirements
-
-### 4.1 Logic Voltage
-
-The Arduino Uno Q operates using **3.3V logic**.
-
-All devices communicating directly with the Q must accept its logic levels or use appropriate level shifting.
-
-### 4.2 Power Distribution
-
-The microcontroller provides control signals, not the primary motor power.
-
-- **Arduino Uno Q:** Logic and control
-- **Stepper Drivers:** Supply regulated motor coil current
-- **Stepper Motors:** Receive power through the drivers
-- **Servo Motor:** Requires a suitable power source
-
-> [!WARNING]
-> Do not assume that motors can be powered directly from the Q's 3.3V output.
->
-> Select power supplies based on the motors' voltage and current requirements.
->
-> Ensure the control system has appropriate common-ground connections.
-
----
-
-## 5. Preliminary Bill of Materials (BOM)
-
-| Component | Quantity | Candidate / Specification |
+| Item | PDF quantity | Proposed installation |
 |---|---:|---|
-| X-axis stepper motor | 1 | TBD |
-| Y-axis stepper motor | 1 | TBD |
-| Stepper motor drivers | 2 | TMC2209 / DRV8825 |
-| Servo motor | 1 | TBD |
-| Servo mounting bracket | 1 | TBD |
-| Servo horn | 1 | Servo-compatible |
-| Mechanical linkage | 1 assembly | TBD |
-| Magnet | 1 | TBD |
-| Timing belts | As needed | GT2 or equivalent |
-| Timing pulleys | As needed | Motor-compatible |
-| Gantry frame and rails | 1 assembly | TBD |
-| Motor power supply | 1 | Based on motor requirements |
-| Servo power supply | As needed | Based on servo requirements |
-| Connecting wires | As needed | Appropriate gauge |
+| NEMA 17 stepper | 5 | 2; exact model/current unresolved |
+| Stepper driver | Unspecified | 2; TMC2209 carriers proposed, DRV8825 alternative |
+| GT2 6 mm belt | 10 m | Cut lengths per final routing |
+| GT2 20T drive pulley | 5 | 2; matched to motor shafts |
+| GT2 idlers | 10 toothed + 10 smooth | Per mechanical layout |
+| Permanent N52 disc magnet | 6 | Carriage quantity to be confirmed |
+| Metal-gear servo | 2 | 1 lift servo assumed; PDF link names MG996R |
+| Mechanical limit switch | 6 | 2 home inputs; linked item appears to be endstop modules |
+| Frame, wheels, spacers, springs, tape, fasteners | See PDF | Per mechanical assembly |
+| UNO Q | Project notes | 1 |
+| Motor DC supply | Unspecified | 24 V candidate; capacity unresolved |
+| Servo regulator | Unspecified | Match exact servo voltage and stall/start demand |
+| Controller power | Unspecified | Suitable USB-C source for initial build |
+| Distribution, fuses, disconnect, cables, connectors | Unspecified | Add to electrical BOM |
+| Driver capacitance/cooling | Unspecified | Match selected carriers and load |
 
-*TBD = To Be Determined*
+NEMA 17 defines frame size, not electrical current. Supply ratings, driver settings, wire sizes and fuses remain provisional until exact loads are known.
 
----
+## PCB decision
+
+A custom PCB is optional. First use assembled driver carriers, power modules and secure terminal connections. After testing motion, switches and servo behavior, a small carrier PCB can consolidate the connectors, sockets, protection and signal routing. Avoid solderless breadboards for motor or servo power.
+
+## References
+
+- Local reference: Brainstorm Dump.pdf at C:/Users/reach/Downloads/Brainstorm Dump.pdf.
+- [CoreXY operating principle](https://corexy.com/theory.html)
+- [UNO Q pinout](https://docs.arduino.cc/resources/pinouts/ABX00162-full-pinout.pdf)
+- [UNO Q power documentation](https://docs.arduino.cc/tutorials/uno-q/power-specification)
+- [Detailed wiring draft and remaining decisions](CoreXYWiring.md)
