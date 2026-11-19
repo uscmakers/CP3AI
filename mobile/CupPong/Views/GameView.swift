@@ -43,12 +43,13 @@ struct GameView: View {
                 }
             }
             .sheet(isPresented: $isRearranging) {
-                RearrangeView(
-                    cupCount: game.remainingCount,
-                    formations: game.availableFormations,
-                    rearrangementsLeft: game.rearrangementsLeft
-                ) { formation in
-                    withAnimation(.spring(duration: 0.6, bounce: 0.15)) { game.apply(formation) }
+                if let formation = game.availableFormations.first {
+                    RearrangeView(
+                        formation: formation,
+                        rearrangementsLeft: game.rearrangementsLeft
+                    ) { formation in
+                        withAnimation(.spring(duration: 0.6, bounce: 0.15)) { game.apply(formation) }
+                    }
                 }
             }
             .sensoryFeedback(.selection, trigger: game.remainingCount)
