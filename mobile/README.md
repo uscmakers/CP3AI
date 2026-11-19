@@ -9,7 +9,16 @@ The app keeps all game state locally on the device. It doesn't talk to the gantr
 - macOS with **Xcode 16 or later**
 - iOS 17+ (iPhone simulator or device)
 
-No third-party dependencies or package installs are needed.
+Xcode downloads the Swift packages (Firebase Auth and Google Sign-In) automatically the first time you open the project.
+
+## Google sign-in setup (optional)
+
+The app runs without this. Until it's set up, the login screen only offers **Continue as Guest**.
+
+1. In the [Firebase console](https://console.firebase.google.com), create a project (or open the team's), then add an **iOS app** with bundle ID `org.uscmakers.CupPong`.
+2. In Firebase, go to **Authentication → Sign-in method**, enable **Google**, choose a support email, and click **Save**.
+3. Only after that, go to **Project settings → General → Your apps**, download `GoogleService-Info.plist`, and drag it into the `CupPong/` folder in Xcode (check the **CupPong** target). It must contain `CLIENT_ID` and `REVERSED_CLIENT_ID`. If it doesn't, Google sign-in wasn't enabled yet when you downloaded it.
+4. Open `GoogleService-Info.plist`, copy the `REVERSED_CLIENT_ID` value, and paste it in place of `com.googleusercontent.apps.REPLACE_WITH_YOUR_CLIENT_ID` in `CupPong/Info.plist`. Google sign-in uses this URL scheme to return to the app.
 
 ## Run in Xcode
 

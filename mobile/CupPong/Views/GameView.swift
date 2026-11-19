@@ -34,12 +34,15 @@ struct GameView: View {
             .navigationTitle("Cup Pong")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button {
                         withAnimation(.spring(duration: 0.4)) { game.reset() }
                     } label: {
                         Label("Reset", systemImage: "arrow.counterclockwise")
                     }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    ProfileButton()
                 }
             }
             .sheet(isPresented: $isRearranging) {
@@ -134,4 +137,5 @@ struct GameView: View {
 
 #Preview {
     GameView()
+        .environment(AuthViewModel())
 }
