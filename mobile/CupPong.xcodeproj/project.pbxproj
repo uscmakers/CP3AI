@@ -6,13 +6,32 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C0FFEE000000000000000101 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = C0FFEE000000000000000111 /* FirebaseAuth */; };
+		C0FFEE000000000000000102 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = C0FFEE000000000000000112 /* FirebaseCore */; };
+		C0FFEE000000000000000103 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = C0FFEE000000000000000113 /* GoogleSignIn */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		C0FFEE000000000000000001 /* CupPong.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CupPong.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C0FFEE000000000000000120 /* Exceptions for "CupPong" folder in "CupPong" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = C0FFEE000000000000000006 /* CupPong */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C0FFEE000000000000000002 /* CupPong */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0FFEE000000000000000120 /* Exceptions for "CupPong" folder in "CupPong" target */,
+			);
 			path = CupPong;
 			sourceTree = "<group>";
 		};
@@ -23,6 +42,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE000000000000000101 /* FirebaseAuth in Frameworks */,
+				C0FFEE000000000000000102 /* FirebaseCore in Frameworks */,
+				C0FFEE000000000000000103 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +87,9 @@
 			);
 			name = CupPong;
 			packageProductDependencies = (
+				C0FFEE000000000000000111 /* FirebaseAuth */,
+				C0FFEE000000000000000112 /* FirebaseCore */,
+				C0FFEE000000000000000113 /* GoogleSignIn */,
 			);
 			productName = CupPong;
 			productReference = C0FFEE000000000000000001 /* CupPong.app */;
@@ -94,6 +119,10 @@
 			);
 			mainGroup = C0FFEE000000000000000004;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C0FFEE000000000000000121 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				C0FFEE000000000000000122 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C0FFEE000000000000000005 /* Products */;
 			projectDirPath = "";
@@ -172,7 +201,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Cup Pong";
+				INFOPLIST_FILE = CupPong/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = CP3AI;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -199,7 +229,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Cup Pong";
+				INFOPLIST_FILE = CupPong/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = CP3AI;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -239,6 +270,43 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C0FFEE000000000000000121 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.0.0;
+			};
+		};
+		C0FFEE000000000000000122 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C0FFEE000000000000000111 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0FFEE000000000000000121 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		C0FFEE000000000000000112 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0FFEE000000000000000121 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		C0FFEE000000000000000113 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0FFEE000000000000000122 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C0FFEE00000000000000000A /* Project object */;
 }
