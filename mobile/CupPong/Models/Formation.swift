@@ -83,4 +83,11 @@ enum FormationLibrary {
     static func formations(for cupCount: Int) -> [Formation] {
         all.filter { $0.cupCount == cupCount }
     }
+
+    /// The formation with this ID. An ID the app doesn't know yet (added to
+    /// `software/layouts.py` only) gets a placeholder named after the ID.
+    static func formation(id: String) -> Formation {
+        all.first { $0.id == id }
+            ?? Formation(id: id, name: id.replacingOccurrences(of: "_", with: " ").capitalized, detail: "", positions: [])
+    }
 }
