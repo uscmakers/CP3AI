@@ -2,7 +2,31 @@
 
 A SwiftUI prototype for the automated cup pong project. It shows the current cup formation, lets players mark cups as hit, suggests when a rerack makes sense, and previews and applies a new formation.
 
-The app keeps all game state locally on the device. It doesn't talk to the gantry, the Arduino, or the computer vision system yet.
+It runs in two modes:
+
+- **Local** (default): the app keeps the game on the phone and players tap cups to mark hits.
+- **Table**: the app connects over Wi-Fi to the game server on the Arduino UNO Q. The server runs the game: the camera reports hits, the gantry moves cups, and the app shows the live state. Players can still mark a missed hit, rearrange, or start a new rack from the app.
+
+## Connecting to the table
+
+1. Tap the antenna button in the top-right of the main screen.
+2. Enter the table's address, for example `unoq.local` or `192.168.1.20`. Port 8765 is used unless you add one (`host:9000`).
+3. Tap **Connect**. The header shows the connection status. If the link drops, the app keeps the last state on screen and retries on its own.
+4. To go back to local play, open the same screen and tap **Disconnect and Play Locally**.
+
+The first time, iOS asks for permission to find devices on the local network. Allow it, or the app can't reach the table.
+
+The message format is in [`docs/websocket-protocol.md`](../docs/websocket-protocol.md).
+
+### Trying it without the table
+
+`tools/mock_table_server.py` imitates the table server (Python 3, no packages needed). It fakes the gantry with a short delay and lets you type commands as if you were the camera:
+
+```sh
+python3 tools/mock_table_server.py
+```
+
+Then type `hit 3`, `rearrange`, `reset` or `state`. In the simulator, connect to `127.0.0.1`. On an iPhone, connect to your Mac's IP address. Both must be on the same Wi-Fi.
 
 ## Requirements
 
@@ -68,12 +92,18 @@ CupPong/
 │   ├── Formation.swift       Formation definitions (FormationLibrary)
 │   ├── Cup.swift             Cup model
 │   └── RerackRules.swift     When to suggest a rerack + rearrangement limit
+├── Networking/
+│   ├── TableConnection.swift WebSocket link to the table server, with reconnect
+│   └── TableMessages.swift   Messages to and from the server
 ├── ViewModels/
-│   └── GameViewModel.swift   Game state: cups, formation, rearrangements used
+│   └── GameViewModel.swift   Game state: local, or the table's state in table mode
 └── Views/
     ├── GameView.swift        Main screen
     ├── RearrangeView.swift   Formation picker / preview sheet
+    ├── TableConnectView.swift  Connect to / disconnect from the table
     └── Components/           CupView, FormationView, FormationCard, RerackBanner, Card
+tools/
+└── mock_table_server.py      Stand-in table server for testing
 ```
 
 ## Formations and rules
