@@ -4,6 +4,9 @@ import SwiftUI
 struct GameView: View {
     @State private var game = GameViewModel()
     @State private var isRearranging = false
+    @State private var isConnecting = false
+    @State private var cupToConfirm: Cup?
+    @State private var isConfirmingReset = false
 
     var body: some View {
         NavigationStack {
@@ -11,17 +14,23 @@ struct GameView: View {
                 header
 
                 FormationView(cups: game.cups) { cup in
-                    withAnimation(.easeOut(duration: 0.2)) { game.toggle(cup) }
+                    if game.isTableMode {
+                        // Hits normally come from the camera; a tap here moves the gantry, so confirm it.
+                        if game.canAct, !cup.isRemoved { cupToConfirm = cup }
+                    } else {
+                        withAnimation(.easeOut(duration: 0.2)) { game.toggle(cup) }
+                    }
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .card()
-                .overlay { if game.isCleared { clearedOverlay } }
+                .overlay { tableOverlay }
 
                 if game.shouldSuggestRerack {
                     RerackBanner(remainingCups: game.remainingCount, formations: game.availableFormations) {
                         isRearranging = true
                     }
+                    .disabled(!game.canRearrange)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
@@ -30,18 +39,29 @@ struct GameView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
             .animation(.easeInOut(duration: 0.25), value: game.shouldSuggestRerack)
+            .animation(.spring(duration: 0.6, bounce: 0.15), value: game.cups)
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Cup Pong")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarLeading) {
                     Button {
-                        withAnimation(.spring(duration: 0.4)) { game.reset() }
+                        if game.isTableMode {
+                            isConfirmingReset = true
+                        } else {
+                            withAnimation(.spring(duration: 0.4)) { game.reset() }
+                        }
                     } label: {
                         Label("Reset", systemImage: "arrow.counterclockwise")
                     }
+                    .disabled(!game.canAct)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        isConnecting = true
+                    } label: {
+                        Label("Table", systemImage: game.isTableMode ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash")
+                    }
                     ProfileButton()
                 }
             }
@@ -54,6 +74,36 @@ struct GameView: View {
                         withAnimation(.spring(duration: 0.6, bounce: 0.15)) { game.apply(formation) }
                     }
                 }
+            }
+            .sheet(isPresented: $isConnecting) {
+                TableConnectView(table: game.table)
+            }
+            .confirmationDialog(
+                "Mark this cup as hit?",
+                isPresented: Binding(get: { cupToConfirm != nil }, set: { if !$0 { cupToConfirm = nil } }),
+                titleVisibility: .visible,
+                presenting: cupToConfirm
+            ) { cup in
+                Button("Park Cup") { game.toggle(cup) }
+            } message: { _ in
+                Text("Use this if the camera missed a hit. The gantry moves the cup off the table.")
+            }
+            .confirmationDialog(
+                "Start a new rack?",
+                isPresented: $isConfirmingReset,
+                titleVisibility: .visible
+            ) {
+                Button("New Rack") { game.reset() }
+            } message: {
+                Text("Put every cup back in the starting formation first. The table will treat them as racked.")
+            }
+            .alert(
+                "Table",
+                isPresented: Binding(get: { game.table.serverError != nil }, set: { if !$0 { game.table.serverError = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(game.table.serverError ?? "")
             }
             .sensoryFeedback(.selection, trigger: game.remainingCount)
         }
@@ -78,15 +128,55 @@ struct GameView: View {
 
             Spacer()
 
-            Text(game.formationLabel)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(Color.primary.opacity(0.05)))
+            VStack(alignment: .trailing, spacing: 6) {
+                if game.isTableMode {
+                    Button {
+                        isConnecting = true
+                    } label: {
+                        TableStatusLabel(status: game.table.status)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Text(game.formationLabel)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.primary.opacity(0.05)))
+            }
         }
         .padding(.top, 8)
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var tableOverlay: some View {
+        if game.isWaitingForTable {
+            VStack(spacing: 10) {
+                ProgressView()
+                Text("Connecting to the table…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .transition(.opacity)
+        } else if game.isBusy {
+            VStack {
+                Spacer()
+                Label("Moving cups…", systemImage: "gearshape.2")
+                    .font(.footnote.weight(.medium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(.regularMaterial))
+                    .padding(.bottom, 12)
+            }
+            .transition(.opacity)
+        } else if game.isCleared {
+            clearedOverlay
+        }
     }
 
     private var rearrangeButton: some View {
@@ -112,7 +202,7 @@ struct GameView: View {
     }
 
     private var rearrangeCaption: String? {
-        if game.isCleared { return nil }
+        if game.isCleared || game.isWaitingForTable { return nil }
         if game.rearrangementsLeft == 0 { return "Rearrangement used this game" }
         if game.availableFormations.isEmpty && game.hasGaps { return "No formations for \(game.remainingCount) cups" }
         return game.rearrangementsLeft == 1
