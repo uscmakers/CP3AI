@@ -471,6 +471,23 @@ class GameEngine:
             for cup_id, position in sorted(self.parked.items())
         ]
 
+        # Every spot of the current formation, with the cup that is
+        # in it or was last in it, so clients can draw hit cups as
+        # empty outlines where they stood.
+        cup_in_spot = {
+            index: cup_id
+            for cup_id, index in self.formation_index.items()
+        }
+
+        spots = [
+            {
+                "index": index,
+                "cup_id": cup_in_spot.get(index),
+                **_position_dict(position),
+            }
+            for index, position in sorted(self.formation_positions.items())
+        ]
+
         return {
             "version": self.version,
             "formation": self.layout_name,
@@ -483,11 +500,49 @@ class GameEngine:
             "cup_diameter_mm": self.cup.rim_diameter,
             "gantry": _position_dict(self.gantry_position),
             "cups": cups,
+            "spots": spots,
         }
 
     # --------------------------------------------------------
     # Planning
     # --------------------------------------------------------
+
+    def check_cup_removal(self, cup_id):
+        """
+        Raise GameError if the rules don't allow removing this cup
+        now. Quick; plan_cup_removal also runs it.
+        """
+
+        self._require_idle()
+
+        if cup_id not in self.active:
+            raise GameError(f"Cup {cup_id} is not in play")
+
+    def check_rearrangement(self, formation=None):
+        """
+        Raise GameError if the rules don't allow this rearrangement
+        now; otherwise return the formation to move into. Quick;
+        plan_rearrangement also runs it.
+        """
+
+        self._require_idle()
+
+        if self.rearrangements_left <= 0:
+            raise GameError("No rearrangements left")
+
+        option = self.rearrange_option
+
+        if option is None:
+            raise GameError(
+                f"No rearrangement offered for {len(self.active)} cups"
+            )
+
+        if formation is not None and formation != option:
+            raise GameError(
+                f"{formation} is not offered; the option is {option}"
+            )
+
+        return option
 
     def plan_cup_removal(self, cup_id):
         """
@@ -495,10 +550,7 @@ class GameEngine:
         when needed. Raises GameError or PlanningError.
         """
 
-        self._require_idle()
-
-        if cup_id not in self.active:
-            raise GameError(f"Cup {cup_id} is not in play")
+        self.check_cup_removal(cup_id)
 
         steps, cost = self._removal_steps(cup_id)
 
@@ -530,22 +582,7 @@ class GameEngine:
         Raises GameError or PlanningError.
         """
 
-        self._require_idle()
-
-        if self.rearrangements_left <= 0:
-            raise GameError("No rearrangements left")
-
-        option = self.rearrange_option
-
-        if option is None:
-            raise GameError(
-                f"No rearrangement offered for {len(self.active)} cups"
-            )
-
-        if formation is not None and formation != option:
-            raise GameError(
-                f"{formation} is not offered; the option is {option}"
-            )
+        option = self.check_rearrangement(formation)
 
         log.info(
             "Rearranging %d cups into %s",

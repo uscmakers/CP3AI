@@ -66,17 +66,24 @@ A command was rejected or planning failed. The game state is unchanged.
 
 Send the text of `GameError` / `PlanningError` as `message`; the app shows it.
 
-## App → server
+## App and CV → server
 
 | Message | Engine call |
 |---|---|
 | `{"type": "cup_hit", "cup_id": 3}` | `execute(plan_cup_removal(3))` |
+| `{"type": "cup_hit", "x_mm": 405.0, "y_mm": 86.0, "confidence": 0.93}` | find the cup in play within one cup radius of (x, y), then as above |
 | `{"type": "rearrange", "formation": "backpack_kid_5"}` | `execute(plan_rearrangement("backpack_kid_5"))` |
 | `{"type": "reset"}` | `reset()` (players have re-racked the cups) |
+| `{"type": "reset", "start_formation": "triangle_10"}` | `reset("triangle_10")`; `triangle_10` or `triangle_6` |
 | `{"type": "get_state"}` | reply with `state` |
 
-`cup_hit` from the app is a manual correction for a hit the camera missed. The
-camera sends hits to the server directly, not through this socket.
+The app sends `cup_hit` with a `cup_id`, as a manual correction for a hit the
+camera missed. The CV connects to the same socket and sends `cup_hit` with
+table coordinates. `confidence` is optional; the server ignores hits below its
+`--min-confidence`.
 
 Each command gets either a new `state` broadcast (it changed something) or an
 `error` sent back to the client that sent it.
+
+One action runs at a time. While cups are moving (`busy: true`), every
+command, CV hits included, is answered with an error and dropped, never queued.
