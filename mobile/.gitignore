@@ -1,0 +1,8 @@
+xcuserdata/
+DerivedData/
+build/
+.DS_Store
+
+# Firebase / Google Sign-In config (contains API keys & client IDs)
+CupPong/GoogleService-Info.plist
+CupPong/Info.plist
