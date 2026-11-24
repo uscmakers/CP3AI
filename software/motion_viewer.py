@@ -1,18 +1,9 @@
-
 """
 Cup Pong Motion Viewer
 
-Features:
-- Five fixed parking slots on each side
-- Bottom-up parking slot arrangement
-- Parking occupancy tracking
-- Collision-aware A* pathfinding
-- Hardcoded triangle_10 side escapes
-- Hardcoded triangle_10 middle-cup strategies
-- Hardcoded triangle_6 middle-cup strategy
-- Temporary blocker relocation and restoration
-- Permanent cup IDs
-- Animated cup movements
+Draws the game and animates cup movements. The game state and
+movement planning live in game_engine.GameEngine; this file is
+one client of it, driven by the mouse and keyboard.
 
 Game flow:
     Choose triangle_10 or triangle_6 before the first move; the
@@ -32,28 +23,22 @@ Controls:
     Q / ESC         - Quit
 """
 
+import logging
 import math
 
 import cv2
 import numpy as np
 
 from config import cup, gantry_workspace
-from layouts import rack_layouts
 
 from movement_planner import (
     TablePosition,
     distance_between,
-    distance_from_segment,
-    fixed_parking_slots,
-    new_parking_occupancy,
-    choose_fixed_parking,
-    choose_triangle_10_side_path,
-    choose_triangle_10_middle_plan,
-    choose_triangle_6_middle_plan,
-    plan_interior_temporary_clearance,
-    plan_rearrangement,
-    aligned_formation_targets,
-    is_position_valid,
+)
+
+from game_engine import (
+    GameEngine,
+    GameError,
 )
 
 
@@ -65,102 +50,15 @@ WINDOW_NAME = "Cup Pong Motion Viewer"
 
 SCALE = 0.60
 
-BACK_CLEARANCE_MM = 40
-PARKING_CLEARANCE_MM = 15
-
-STEP_MM = 15
 FRAME_DELAY_MS = 25
 
 REARRANGE_KEYS = {ord("f"), ord("F")}
-
-# Placements of the new formation tried before giving up.
-REARRANGE_ATTEMPTS = 3
-
-# Default starting formation.
-START_FORMATION = "triangle_6"
 
 # Keys choosing the starting formation before the first move.
 START_FORMATION_KEYS = {
     ord("1"): "triangle_10",
     ord("2"): "triangle_6",
 }
-
-# Rearrangements allowed per game.
-MAX_REARRANGEMENTS = 1
-
-# Optional rearrangement offered at each remaining-cup count.
-REARRANGE_FORMATIONS = {
-    6: "triangle_6",
-    5: "backpack_kid_5",
-    3: "triangle_3",
-    2: "vertical_2",
-}
-
-TRIANGLE_10_SIDE_CUPS = {4, 6, 7, 8}
-TRIANGLE_10_MIDDLE_CUPS = {1, 2, 5}
-# Formation positions, not cup IDs (they differ after a rearrange).
-TRIANGLE_6_MIDDLE_CUPS = {1}
-
-
-# ============================================================
-# FORMATION POSITIONING
-# ============================================================
-
-def place_layout(name):
-    """
-    Position cups near the back of the table.
-
-    The back is the bottom of the viewer.
-    """
-
-    offsets = rack_layouts[name]
-
-    min_x = min(p.dx for p in offsets)
-    max_x = max(p.dx for p in offsets)
-    min_y = min(p.dy for p in offsets)
-
-    center_x = (min_x + max_x) / 2
-
-    bottom_y = (
-        BACK_CLEARANCE_MM
-        + cup.rim_diameter / 2
-    )
-
-    positions = {}
-
-    for cup_id, offset in enumerate(offsets):
-        positions[cup_id] = TablePosition(
-            x=(
-                gantry_workspace.width / 2
-                + offset.dx
-                - center_x
-            ),
-            y=(
-                bottom_y
-                + offset.dy
-                - min_y
-            )
-        )
-
-    for cup_id, position in positions.items():
-        obstacles = [
-            other
-            for other_id, other in positions.items()
-            if other_id != cup_id
-        ]
-
-        if not is_position_valid(
-            position,
-            obstacles,
-            gantry_workspace,
-            cup
-        ):
-            raise ValueError(
-                f"Formation {name}: cup {cup_id} "
-                "is outside workspace or overlaps."
-            )
-
-    return positions
 
 
 # ============================================================
@@ -375,199 +273,48 @@ def interpolate(path, distance_step=7):
     yield path[-1]
 
 
-# ============================================================
-# PLAN VALIDATION
-# ============================================================
-
-def validate_plan(
-    steps,
-    active,
-    parked,
-    slots,
-    occupancy
-):
-    """
-    Simulate all movements before execution.
-
-    Validate:
-    - Cup IDs
-    - Starting positions
-    - Path endpoints
-    - Collision-free movements
-    - Parking slot availability
-    """
-
-    simulated_active = dict(active)
-    simulated_parked = dict(parked)
-    simulated_occupancy = dict(occupancy)
-
-    for (
-        movement_name,
-        cup_id,
-        start,
-        destination,
-        path,
-        slot_id
-    ) in steps:
-
-        if cup_id in simulated_active:
-            actual = simulated_active.pop(cup_id)
-            was_active = True
-
-        elif cup_id in simulated_parked:
-            actual = simulated_parked.pop(cup_id)
-            was_active = False
-
-        else:
-            return False
-
-        if distance_between(actual, start) > 0.01:
-            return False
-
-        if not path:
-            return False
-
-        if distance_between(path[0], start) > 0.01:
-            return False
-
-        if distance_between(
-            path[-1], destination
-        ) > 0.01:
-            return False
-
-        obstacles = (
-            list(simulated_active.values())
-            + list(simulated_parked.values())
-        )
-
-        for position in path:
-            if not is_position_valid(
-                position,
-                obstacles,
-                gantry_workspace,
-                cup
-            ):
-                return False
-
-        for a, b in zip(path, path[1:]):
-            for obstacle in obstacles:
-                if distance_from_segment(
-                    obstacle, a, b
-                ) < cup.rim_diameter - 1e-5:
-                    return False
-
-        if slot_id is not None:
-            if slot_id not in slots:
-                return False
-
-            if simulated_occupancy.get(
-                slot_id
-            ) is not None:
-                return False
-
-            if distance_between(
-                slots[slot_id],
-                destination
-            ) > 0.01:
-                return False
-
-            simulated_occupancy[slot_id] = cup_id
-            simulated_parked[cup_id] = destination
-
-        elif was_active:
-            simulated_active[cup_id] = destination
-
-        else:
-            simulated_parked[cup_id] = destination
-
-    return True
 
 
 # ============================================================
 # EXECUTION
 # ============================================================
 
-def rearrange_option(
-    layout_name,
-    active,
-    rearrangements_left
-):
-    """Formation offered for the current cup count, if any."""
+def animate_step(engine, step):
+    """Animate one movement. The engine updates state afterwards."""
 
-    if rearrangements_left <= 0:
-        return None
+    print(f"Executing: {step.name} (cup {step.cup_id})")
 
-    option = REARRANGE_FORMATIONS.get(len(active))
-
-    if option == layout_name or option not in rack_layouts:
-        return None
-
-    return option
-
-
-def execute_steps(
-    steps,
-    active,
-    parked,
-    slots,
-    occupancy
-):
-    """
-    Animate movements and update state in place.
-
-    Returns the final gantry position.
-    """
-
-    gantry_position = None
-
-    for (
-        movement_name,
-        moving_id,
-        start,
-        destination,
-        path,
-        slot_id
-    ) in steps:
-        print(
-            f"Executing: {movement_name} "
-            f"(cup {moving_id})"
+    for moving_position in interpolate(step.path):
+        frame = render(
+            engine.active,
+            engine.parked,
+            engine.slots,
+            engine.occupancy,
+            moving=(step.cup_id, moving_position),
+            path=step.path,
+            title=step.name
         )
 
-        if moving_id in active:
-            active.pop(moving_id)
-        else:
-            parked.pop(moving_id)
+        cv2.imshow(WINDOW_NAME, frame)
+        cv2.waitKey(FRAME_DELAY_MS)
 
-        for moving_position in interpolate(path):
-            frame = render(
-                active,
-                parked,
-                slots,
-                occupancy,
-                moving=(
-                    moving_id,
-                    moving_position
-                ),
-                path=path,
-                title=movement_name
-            )
 
-            cv2.imshow(
-                WINDOW_NAME,
-                frame
-            )
+def run_plan(engine, plan):
+    engine.execute(
+        plan,
+        on_step=lambda step: animate_step(engine, step)
+    )
 
-            cv2.waitKey(FRAME_DELAY_MS)
 
-        if slot_id is not None:
-            parked[moving_id] = destination
-            occupancy[slot_id] = moving_id
-        else:
-            active[moving_id] = destination
-
-        gantry_position = destination
-
-    return gantry_position
+def print_occupancy(engine):
+    print(
+        "Occupied slots:",
+        {
+            slot_id: cup_id
+            for slot_id, cup_id in engine.occupancy.items()
+            if cup_id is not None
+        }
+    )
 
 
 # ============================================================
@@ -575,88 +322,29 @@ def execute_steps(
 # ============================================================
 
 def main():
-    if START_FORMATION not in rack_layouts:
-        raise ValueError(
-            f"{START_FORMATION} not defined in layouts.py"
-        )
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    slots = fixed_parking_slots(
-        gantry_workspace,
-        cup,
-        PARKING_CLEARANCE_MM
-    )
+    engine = GameEngine()
 
-    occupancy = new_parking_occupancy(slots)
+    canvas_height = int(gantry_workspace.length * SCALE)
 
-    start_formation = START_FORMATION
+    state = {"clicked_id": None}
 
-    layout_name = start_formation
-
-    active = place_layout(layout_name)
-
-    # Active cup ID -> position index in the current formation.
-    formation_index = {
-        cup_id: cup_id for cup_id in active
-    }
-
-    # Formation position index -> table position, including
-    # positions whose cups have been removed.
-    formation_positions = dict(active)
-
-    # Starting formation locks once any cup moves.
-    game_started = False
-
-    parked = {}
-
-    rearrangements_left = MAX_REARRANGEMENTS
-
-    gantry_position = TablePosition(
-        gantry_workspace.width / 2,
-        gantry_workspace.length / 2
-    )
-
-    canvas_height = int(
-        gantry_workspace.length * SCALE
-    )
-
-    state = {
-        "clicked_id": None,
-        "active": active
-    }
-
-    def on_mouse(
-        event,
-        mouse_x,
-        mouse_y,
-        flags,
-        parameters
-    ):
+    def on_mouse(event, mouse_x, mouse_y, flags, parameters):
         if event != cv2.EVENT_LBUTTONDOWN:
             return
 
-        for cup_id, position in parameters[
-            "active"
-        ].items():
+        for cup_id, position in engine.active.items():
             px, py = pixel(position, canvas_height)
 
-            distance = math.hypot(
-                mouse_x - px,
-                mouse_y - py
-            )
+            distance = math.hypot(mouse_x - px, mouse_y - py)
 
-            if distance <= (
-                cup.rim_diameter / 2 * SCALE
-            ):
+            if distance <= cup.rim_diameter / 2 * SCALE:
                 parameters["clicked_id"] = cup_id
                 break
 
     cv2.namedWindow(WINDOW_NAME)
-
-    cv2.setMouseCallback(
-        WINDOW_NAME,
-        on_mouse,
-        state
-    )
+    cv2.setMouseCallback(WINDOW_NAME, on_mouse, state)
 
     print()
     print("====================================")
@@ -670,41 +358,31 @@ def main():
     print()
 
     while True:
-        state["active"] = active
+        option = engine.rearrange_option
 
-        option = rearrange_option(
-            layout_name,
-            active,
-            rearrangements_left
-        )
+        title = engine.layout_name
 
-        title = layout_name
-
-        if not game_started:
+        if not engine.game_started:
             title += " | Start: 1=tri10 2=tri6"
         elif option is not None:
             title += f" | F: {option}"
-        elif rearrangements_left <= 0:
+        elif engine.rearrangements_left <= 0:
             title += " | No rearrangements left"
 
         cv2.imshow(
             WINDOW_NAME,
             render(
-                active,
-                parked,
-                slots,
-                occupancy,
+                engine.active,
+                engine.parked,
+                engine.slots,
+                engine.occupancy,
                 title=title
             )
         )
 
         key = cv2.waitKeyEx(30)
 
-        if key in (
-            27,
-            ord("q"),
-            ord("Q")
-        ):
+        if key in (27, ord("q"), ord("Q")):
             break
 
         # ----------------------------------------------------
@@ -714,32 +392,15 @@ def main():
         if key in START_FORMATION_KEYS:
             state["clicked_id"] = None
 
-            if game_started:
-                print(
-                    "Game already started. "
-                    "Press R to reset and choose again."
+            try:
+                engine.choose_start_formation(
+                    START_FORMATION_KEYS[key]
                 )
+            except GameError as error:
+                print(error)
                 continue
 
-            choice = START_FORMATION_KEYS[key]
-
-            if choice not in rack_layouts:
-                print(f"{choice} not defined in layouts.py")
-                continue
-
-            start_formation = choice
-            layout_name = start_formation
-
-            active = place_layout(layout_name)
-
-            formation_index = {
-                cup_id: cup_id for cup_id in active
-            }
-
-            formation_positions = dict(active)
-
-            print("Starting formation:", layout_name)
-
+            print("Starting formation:", engine.layout_name)
             continue
 
         # ----------------------------------------------------
@@ -749,7 +410,7 @@ def main():
         if key in REARRANGE_KEYS:
             state["clicked_id"] = None
 
-            if rearrangements_left <= 0:
+            if engine.rearrangements_left <= 0:
                 print("No rearrangements left.")
                 continue
 
@@ -758,73 +419,20 @@ def main():
 
             print()
             print("------------------------------------")
-            print(
-                f"Rearranging {len(active)} cups "
-                f"into {option}..."
-            )
 
-            candidates = aligned_formation_targets(
-                place_layout(option),
-                formation_positions,
-                active,
-                parked,
-                gantry_workspace,
-                cup
-            )
-
-            result = None
-
-            for targets in candidates[:REARRANGE_ATTEMPTS]:
-                result = plan_rearrangement(
-                    active,
-                    targets,
-                    parked,
-                    gantry_workspace,
-                    cup,
-                    step_size=STEP_MM
-                )
-
-                if result is not None and validate_plan(
-                    result[0],
-                    active,
-                    parked,
-                    slots,
-                    occupancy
-                ):
-                    break
-
-                result = None
-
-            if result is None:
-                print(
-                    "No valid rearrangement found. "
-                    "Cups not moved."
-                )
+            try:
+                plan = engine.plan_rearrangement()
+            except GameError as error:
+                print(error)
                 continue
 
-            steps, assignment = result
+            run_plan(engine, plan)
 
-            final_position = execute_steps(
-                steps,
-                active,
-                parked,
-                slots,
-                occupancy
+            print(f"Formation: {engine.layout_name}")
+            print(
+                f"Rearrangements left: {engine.rearrangements_left}"
             )
-
-            if final_position is not None:
-                gantry_position = final_position
-
-            layout_name = option
-            formation_index = assignment
-            formation_positions = targets
-            rearrangements_left -= 1
-            game_started = True
-
-            print(f"Formation: {layout_name}")
-            print("No rearrangements left.")
             print("------------------------------------")
-
             continue
 
         # ----------------------------------------------------
@@ -832,32 +440,10 @@ def main():
         # ----------------------------------------------------
 
         if key in (ord("r"), ord("R")):
-            layout_name = start_formation
-
-            active = place_layout(layout_name)
-
-            formation_index = {
-                cup_id: cup_id for cup_id in active
-            }
-
-            formation_positions = dict(active)
-
-            game_started = False
-
-            parked = {}
-            occupancy = new_parking_occupancy(slots)
-
-            rearrangements_left = MAX_REARRANGEMENTS
-
-            gantry_position = TablePosition(
-                gantry_workspace.width / 2,
-                gantry_workspace.length / 2
-            )
-
+            engine.reset()
             state["clicked_id"] = None
 
-            print("Reset:", layout_name)
-
+            print("Reset:", engine.layout_name)
             continue
 
         # ----------------------------------------------------
@@ -867,248 +453,36 @@ def main():
         selected_id = state["clicked_id"]
         state["clicked_id"] = None
 
-        if (
-            selected_id is None
-            or selected_id not in active
-        ):
+        if selected_id is None or selected_id not in engine.active:
             continue
-
-        source = active[selected_id]
-
-        obstacles = [
-            position
-            for cup_id, position in active.items()
-            if cup_id != selected_id
-        ]
-
-        obstacles += list(parked.values())
 
         print()
         print("------------------------------------")
-        print(f"Formation: {layout_name}")
+        print(f"Formation: {engine.layout_name}")
         print(f"Selected cup ID: {selected_id}")
 
-        steps = None
-        cost = None
-
-        # ----------------------------------------------------
-        # Step 1: Hardcoded middle-cup strategy
-        # ----------------------------------------------------
-
-        if (
-            layout_name == "triangle_10"
-            and selected_id in TRIANGLE_10_MIDDLE_CUPS
-        ):
-            print(
-                f"Cup {selected_id}: using "
-                "hardcoded middle-cup strategy..."
-            )
-
-            result = choose_triangle_10_middle_plan(
-                selected_id,
-                active,
-                parked,
-                gantry_position,
-                gantry_workspace,
-                cup,
-                slots,
-                occupancy,
-                step_size=STEP_MM
-            )
-
-            if result is None:
-                print(
-                    "No valid middle-cup removal plan found."
-                )
-                continue
-
-            steps, cost = result
-
-        elif (
-            layout_name == "triangle_6"
-            and formation_index.get(selected_id)
-            in TRIANGLE_6_MIDDLE_CUPS
-        ):
-            print(
-                f"Cup {selected_id}: using "
-                "hardcoded middle-cup strategy..."
-            )
-
-            result = choose_triangle_6_middle_plan(
-                selected_id,
-                active,
-                parked,
-                gantry_position,
-                gantry_workspace,
-                cup,
-                slots,
-                occupancy,
-                step_size=STEP_MM,
-                formation_index=formation_index
-            )
-
-            if result is None:
-                print(
-                    "No valid middle-cup removal plan found."
-                )
-                continue
-
-            steps, cost = result
-
-        # ----------------------------------------------------
-        # Step 2: Side cups and other formations
-        # ----------------------------------------------------
-
-        else:
-            is_initial_triangle_10 = (
-                layout_name == "triangle_10"
-                and len(active) == 10
-                and len(parked) == 0
-            )
-
-            direct = None
-
-            if (
-                is_initial_triangle_10
-                and selected_id in TRIANGLE_10_SIDE_CUPS
-            ):
-                print(
-                    f"Cup {selected_id}: "
-                    "attempting hardcoded side escape..."
-                )
-
-                direct = choose_triangle_10_side_path(
-                    selected_id,
-                    source,
-                    obstacles,
-                    gantry_position,
-                    gantry_workspace,
-                    cup,
-                    slots,
-                    occupancy,
-                    step_size=STEP_MM
-                )
-
-            # Try normal A* if no side escape found.
-            if direct is None:
-                direct = choose_fixed_parking(
-                    source,
-                    obstacles,
-                    gantry_position,
-                    gantry_workspace,
-                    cup,
-                    slots,
-                    occupancy,
-                    step_size=STEP_MM
-                )
-
-            if direct is not None:
-                cost, slot_id, target, path = direct
-
-                steps = (
-                    (
-                        f"Park cup in {slot_id}",
-                        selected_id,
-                        source,
-                        target,
-                        path,
-                        slot_id
-                    ),
-                )
-
-                print(
-                    f"Direct parking path found: {slot_id}"
-                )
-
-            else:
-                print(
-                    "No direct parking path. "
-                    "Attempting temporary relocation..."
-                )
-
-                result = plan_interior_temporary_clearance(
-                    selected_id,
-                    active,
-                    parked,
-                    gantry_position,
-                    gantry_workspace,
-                    cup,
-                    slots,
-                    occupancy,
-                    step_size=STEP_MM
-                )
-
-                if result is None:
-                    print(
-                        "No valid temporary relocation plan found."
-                    )
-                    continue
-
-                steps, cost = result
-
-        # ----------------------------------------------------
-        # Step 3: Validate complete plan
-        # ----------------------------------------------------
-
-        if not validate_plan(
-            steps,
-            active,
-            parked,
-            slots,
-            occupancy
-        ):
-            print(
-                "Plan validation failed. "
-                "No cups moved."
-            )
+        try:
+            plan = engine.plan_cup_removal(selected_id)
+        except GameError as error:
+            print(error)
             continue
 
-        print(
-            f"Total movements: {len(steps)}"
-        )
+        print(f"Total movements: {len(plan.steps)}")
+        print(f"Estimated gantry travel: {plan.cost:.2f} mm")
 
-        print(
-            f"Estimated gantry travel: {cost:.2f} mm"
-        )
-
-        # ----------------------------------------------------
-        # Step 4: Execute movements
-        # ----------------------------------------------------
-
-        gantry_position = execute_steps(
-            steps,
-            active,
-            parked,
-            slots,
-            occupancy
-        )
-
-        game_started = True
+        run_plan(engine, plan)
 
         print()
         print("Movement completed.")
-        print(
-            f"Remaining active cups: {len(active)}"
-        )
-        print(f"Parked cups: {len(parked)}")
-        print(
-            "Occupied slots:",
-            {
-                slot_id: cup_id
-                for slot_id, cup_id in occupancy.items()
-                if cup_id is not None
-            }
-        )
+        print(f"Remaining active cups: {len(engine.active)}")
+        print(f"Parked cups: {len(engine.parked)}")
+        print_occupancy(engine)
 
-        option = rearrange_option(
-            layout_name,
-            active,
-            rearrangements_left
-        )
+        option = engine.rearrange_option
 
         if option is not None:
             print(
-                f"{len(active)} cups left: press F to "
+                f"{len(engine.active)} cups left: press F to "
                 f"rearrange into {option}, or keep playing."
             )
 
